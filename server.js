@@ -2,7 +2,7 @@
 
 require ('dotenv').config();
 const express = require('express');
-// const pg = require('pg');
+const pg = require('pg');
 
 const superagent = require('superagent');
 
@@ -23,9 +23,9 @@ const app = express();
 const PORT = process.env.PORT;
 
 // database setup
-// const client = new pg.Client(process.env.DATABASE_URL);
-// client.connect();
-// client.on('error', err => console.error(err));
+const client = new pg.Client(process.env.DATABASE_URL);
+client.connect();
+client.on('error', err => console.error(err));
 
 // middleware setup
 // middleware necessary to allow request.body to be parsed
@@ -41,6 +41,12 @@ app.get('/', (request, response) => { response.render('index');});
 app.get('/address', (request, response) => {response.render('pages/address');});
 app.post('/address', getAddressData);
 
+// save a search
+app.post('/save-search', saveSearch);
+
+// retrieve saved searches
+app.get('/saved-searches', showSavedSearches); // todo: filter by user.
+
 // 404
 app.use('*', (request, response) => {response.render('pages/error');});
 
@@ -48,6 +54,40 @@ app.use('*', (request, response) => {response.render('pages/error');});
 app.listen(PORT, () => console.log('listening on PORT',PORT));
 
 // Callback functions
+function showSavedSearches (request, response) {
+  let sql = `SELECT address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link FROM address_search order by id DESC;`;
+
+  client.query(sql)
+    .then(results => {
+      console.log({results});
+      response.render('pages/show-saved-searches', {searches : results.rows, message: 'Here are your saved searches.'});
+    });
+}
+function saveSearch(request, response) {
+  let {address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link} = request.body;
+  let sql = `INSERT INTO address_search(address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`;
+  let values = [address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link];
+
+  client.query(sql, values)
+    // .then(
+    //   getIdFromAddressSearchTable(request,response)
+    // )
+    .then(results => {
+      console.log({results});
+      response.render('pages/saved-search', {search : values, message: 'you saved a search!'});
+    })
+    .catch(err => {
+      console.error(err);
+      response.status(500).send(err);
+    });
+}
+
+// function getIdFromAddressSearchTable(request,response) {
+//   let {address, zip, city, state, neighborhood} = request.body;
+//   let sql = `SELECT id FROM address_search WHERE address = $1 AND zip = $2 AND city = $3 AND state = $4 and neighborhood =$5;`;
+//   let values = [address, zip, city, state, neighborhood];
+// }
+
 function getAddressData(request, response) {
   let myNeighborhood = [];
   let hoodStr = 'Unknown';
@@ -56,7 +96,9 @@ function getAddressData(request, response) {
       myNeighborhood = results.body.results[0].address_components.filter(obj => {
         return obj.types.includes('neighborhood');
       });
-      hoodStr = (myNeighborhood[0].short_name) ? myNeighborhood[0].short_name : myNeighborhood[0].long_name;
+      if(myNeighborhood[0].short_name || myNeighborhood[0].long_name) {
+        hoodStr = (myNeighborhood[0].short_name) ? myNeighborhood[0].short_name : myNeighborhood[0].long_name;
+      }
     });
 
   getGeocodedData(request, response)
