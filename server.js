@@ -41,40 +41,57 @@ app.get('/', (request, response) => { response.render('index');});
 app.get('/address', (request, response) => {response.render('pages/address');});
 app.post('/address', getAddressData);
 
+
+app.post('/save-search', saveSearch);
+//app.get(/save-search, showSavedSearches) // todo: show all the saved searches (by user)
+
 // save a search
 app.post('/save-search', saveSearch);
 
 // retrieve saved searches
 app.get('/saved-searches', showSavedSearches); // todo: filter by user.
 
+// add a user
+app.post('/login', checkUser);
+app.get('/login', (request, response) => {response.render('pages/login');});
+app.get('/login-message', (request, response) => {response.render('pages/login-message');});
+
 // 404
 app.use('*', (request, response) => {response.render('pages/error');});
 
 // listener
-app.listen(PORT, () => console.log('listening on PORT',PORT));
+app.listen(PORT, () => console.log('listening on PORT', PORT));
 
 // Callback functions
-function showSavedSearches (request, response) {
-  let sql = `SELECT address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link FROM address_search order by id DESC;`;
-
-  client.query(sql)
-    .then(results => {
-      console.log({results});
-      response.render('pages/show-saved-searches', {searches : results.rows, message: 'Here are your saved searches.'});
+function checkUser(request, response) {
+  let {email, first} = request.body;
+  let values = [email];
+  let sql = `SELECT id, first_name FROM walkhome_user WHERE email = $1;`;
+  client.query(sql,values)
+    .then(result => {
+      if (result.rows[0] && result.rows[0].id){
+        let myUser = result.rows[0].id;
+        if (!first) { first = result.rows[0].first_name; }
+        if (myUser > 0) {
+          return response.render('pages/login-message', {login_required: false, message: `Welcome back ${first}!`});
+        }
+      }
+      else {
+        addUser (request, response);
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      response.status(500).send(err);
     });
 }
-function saveSearch(request, response) {
-  let {address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link} = request.body;
-  let sql = `INSERT INTO address_search(address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`;
-  let values = [address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link];
-
+function addUser (request, response) {
+  let {email, first, last, phone} = request.body;
+  let sql = `INSERT INTO walkhome_user(email, first_name, last_name, phone_number) VALUES( $1, $2, $3, $4);`;
+  let values = [email, first, last, phone];
   client.query(sql, values)
-    // .then(
-    //   getIdFromAddressSearchTable(request,response)
-    // )
-    .then(results => {
-      console.log({results});
-      response.render('pages/saved-search', {search : values, message: 'you saved a search!'});
+    .then(result => {
+      response.render('pages/login-message', {login_required: email, message: `Welcome, ${first}, you are now a Walkhome member! Please click to login.`});
     })
     .catch(err => {
       console.error(err);
@@ -82,11 +99,29 @@ function saveSearch(request, response) {
     });
 }
 
-// function getIdFromAddressSearchTable(request,response) {
-//   let {address, zip, city, state, neighborhood} = request.body;
-//   let sql = `SELECT id FROM address_search WHERE address = $1 AND zip = $2 AND city = $3 AND state = $4 and neighborhood =$5;`;
-//   let values = [address, zip, city, state, neighborhood];
-// }
+function showSavedSearches (request, response) {
+  let sql = `SELECT address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link FROM address_search order by id DESC;`;
+
+  client.query(sql)
+    .then(results => {
+      response.render('pages/show-saved-searches', {searches : results.rows, message: 'Here are your saved searches.'});
+    });
+}
+
+function saveSearch(request, response) {
+  let {address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link} = request.body;
+  let sql = `INSERT INTO address_search(address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`;
+  let values = [address, zip, city, state, neighborhood, walkscore, ws_explanation, ws_link];
+
+  client.query(sql, values)
+    .then(results => {
+      response.render('pages/saved-search', {search : values, message: 'you saved a search!'});
+    })
+    .catch(err => {
+      console.error(err);
+      response.status(500).send(err);
+    });
+}
 
 function getAddressData(request, response) {
   let myNeighborhood = [];
@@ -96,7 +131,7 @@ function getAddressData(request, response) {
       myNeighborhood = results.body.results[0].address_components.filter(obj => {
         return obj.types.includes('neighborhood');
       });
-      if(myNeighborhood[0].short_name || myNeighborhood[0].long_name) {
+      if(myNeighborhood && myNeighborhood[0] && (myNeighborhood[0].short_name || myNeighborhood[0].long_name)) {
         hoodStr = (myNeighborhood[0].short_name) ? myNeighborhood[0].short_name : myNeighborhood[0].long_name;
       }
     });
